@@ -60,6 +60,9 @@ mongoose
     console.log("MongoDB Connected");
   })
   .catch((err) => {
+    console.error("MongoDB connection error:", err.message);
+  });
+
 // Health Check
 app.get("/api/health", (req, res) => {
   res.json({

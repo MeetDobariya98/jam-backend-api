@@ -10,15 +10,14 @@ const allowedOrigins = [
   "http://localhost:5173",
   "http://localhost:3000",
   process.env.FRONTEND_URL,
-].filter(Boolean);
+].filter(Boolean).map(url => url.replace(/\/$/, ""));
 
 app.use(cors({
   origin: (origin, callback) => {
-    // Allow requests with no origin (like mobile apps or curl requests)
     if (!origin) return callback(null, true);
     if (allowedOrigins.indexOf(origin) === -1) {
-      const msg = "The CORS policy for this site does not allow access from the specified Origin.";
-      return callback(new Error(msg), false);
+      console.warn(`[CORS REJECTED] Origin: ${origin}`);
+      return callback(new Error("CORS Not Allowed"), false);
     }
     return callback(null, true);
   },
@@ -61,8 +60,20 @@ mongoose
     console.log("MongoDB Connected");
   })
   .catch((err) => {
-    console.error("MongoDB connection error:", err.message);
+// Health Check
+app.get("/api/health", (req, res) => {
+  res.json({
+    status: "ok",
+    uptime: process.uptime(),
+    db: mongoose.connection.readyState === 1 ? "connected" : "disconnected",
+    env: {
+      hasMongo: !!process.env.MONGO_URI,
+      hasJwt: !!process.env.JWT_SECRET,
+      hasFrontend: !!process.env.FRONTEND_URL,
+      nodeEnv: process.env.NODE_ENV
+    }
   });
+});
 
 //  404 Handler
 app.use((req, res) => {

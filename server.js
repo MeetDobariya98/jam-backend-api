@@ -5,17 +5,54 @@ require("dotenv").config();
 
 const app = express();
 
-//  Middleware
-app.use(cors());
-app.use(express.json());
+// Middleware
+const allowedOrigins = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  process.env.FRONTEND_URL,
+].filter(Boolean);
 
-//  Root test route (VERY IMPORTANT)
-app.get("/", (req, res) => {
-  res.send("Jam API is running 🚀");
-});
+app.use(cors({
+  origin: (origin, callback) => {
+    // Allow requests with no origin (like mobile apps or curl requests)
+    if (!origin) return callback(null, true);
+    if (allowedOrigins.indexOf(origin) === -1) {
+      const msg = "The CORS policy for this site does not allow access from the specified Origin.";
+      return callback(new Error(msg), false);
+    }
+    return callback(null, true);
+  },
+  credentials: true,
+}));
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 //  Routes
 app.use("/api", require("./routes/auth"));
+
+const notificationRoutes = require("./routes/notificationRoutes");
+app.use("/api/notifications", notificationRoutes);
+
+const postRoutes = require("./routes/postRoutes");
+app.use("/api/posts", postRoutes);
+
+const connectionRoutes = require("./routes/connectionRoutes");
+app.use("/api/connections", connectionRoutes);
+
+const communityRoutes = require("./routes/communityRoutes");
+app.use("/api/communities", communityRoutes);
+
+const userRoutes = require("./routes/userRoutes");
+app.use("/api/users", userRoutes);
+
+const messageRoutes = require("./routes/messageRoutes");
+app.use("/api/messages", messageRoutes);
+
+const adminAuthRoutes = require("./routes/adminAuthRoutes");
+app.use("/api/admin-auth", adminAuthRoutes);
+
+const adminRoutes = require("./routes/adminRoutes");
+app.use("/api/admin", adminRoutes);
 
 //  MongoDB Connection
 mongoose

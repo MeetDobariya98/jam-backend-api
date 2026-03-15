@@ -2,8 +2,19 @@ const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
+const nodemailer = require("nodemailer");
+const crypto = require("crypto");
 
 const router = express.Router();
+
+//  Nodemailer Transporter
+const transporter = nodemailer.createTransport({
+  service: "gmail",
+  auth: {
+    user: process.env.EMAIL_USER,
+    pass: process.env.EMAIL_PASS,
+  },
+});
 
 /**
  * SIGNUP
@@ -52,7 +63,6 @@ router.post("/signup", async (req, res) => {
       instrument,
       state,
       city,
-      
     });
 
     // Generate token
@@ -74,6 +84,7 @@ router.post("/signup", async (req, res) => {
         state: user.state,
         city: user.city,
         profilePhoto: user.profilePhoto || "", 
+        role: user.role
       },
     });
 
@@ -127,6 +138,7 @@ router.post("/login", async (req, res) => {
         state: user.state,
         city: user.city,
         profilePhoto: user.profilePhoto || "", 
+        role: user.role
       },
     });
 
@@ -136,7 +148,110 @@ router.post("/login", async (req, res) => {
   }
 });
 
-router.get("/api/profile", async (req, res) => {
+/**
+ * FORGOT PASSWORD (REAL EMAIL)
+ * POST /api/forgot-password
+ */
+router.post("/forgot-password", async (req, res) => {
+  try {
+    const { email } = req.body;
+    const user = await User.findOne({ email });
+    
+    if (!user) {
+      return res.status(404).json({ message: "User not found" });
+    }
+
+    // Generate 6-digit OTP
+    const otp = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpExpires = Date.now() + 10 * 60 * 1000; // 10 mins
+
+    user.resetPasswordOTP = otp;
+    user.resetPasswordOTPExpires = otpExpires;
+    await user.save();
+
+    // Send Real Email
+    const mailOptions = {
+      from: `"Jam Support" <${process.env.EMAIL_USER}>`,
+      to: user.email,
+      subject: "Password Reset Code",
+      html: `
+        <div style="font-family: sans-serif; padding: 20px; color: #333;">
+          <h2 style="color: #4f46e5;">Reset Your Password</h2>
+          <p>You requested a password reset. Use the code below to proceed:</p>
+          <div style="background: #f3f4f6; padding: 20px; border-radius: 12px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #4f46e5;">
+            ${otp}
+          </div>
+          <p style="margin-top: 20px;">This code will expire in 10 minutes.</p>
+          <p>If you didn't request this, please ignore this email.</p>
+        </div>
+      `,
+    };
+
+    console.log(`[EMAIL] Attempting to send OTP to ${user.email}...`);
+    await transporter.sendMail(mailOptions);
+    console.log(`[EMAIL] OTP sent successfully to ${user.email}`);
+
+    res.json({ message: "Verification code sent to your email" });
+  } catch (error) {
+    console.error("[EMAIL ERROR] Error sending forgot password email:", error);
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * VERIFY OTP
+ * POST /api/verify-otp
+ */
+router.post("/verify-otp", async (req, res) => {
+  try {
+    const { email, otp } = req.body;
+    const user = await User.findOne({ 
+      email, 
+      resetPasswordOTP: otp,
+      resetPasswordOTPExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: "Invalid or expired code" });
+    }
+
+    res.json({ message: "Code verified successfully" });
+  } catch (error) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+/**
+ * RESET PASSWORD (REAL)
+ * POST /api/reset-password
+ */
+router.post("/reset-password", async (req, res) => {
+  try {
+    const { email, otp, newPassword } = req.body;
+    
+    const user = await User.findOne({ 
+      email, 
+      resetPasswordOTP: otp,
+      resetPasswordOTPExpires: { $gt: Date.now() }
+    });
+
+    if (!user) {
+      return res.status(400).json({ message: "Invalid or expired code session" });
+    }
+
+    const hashedPassword = await bcrypt.hash(newPassword, 10);
+    user.password = hashedPassword;
+    user.resetPasswordOTP = undefined;
+    user.resetPasswordOTPExpires = undefined;
+    await user.save();
+
+    res.json({ message: "Password reset successful" });
+  } catch (error) {
+    res.status(500).json({ message: "Server error" });
+  }
+});
+
+router.get("/profile", async (req, res) => {
   try {
     const token = req.headers.authorization?.split(" ")[1];
     if (!token) return res.status(401).json({ message: "No token" });
@@ -147,6 +262,14 @@ router.get("/api/profile", async (req, res) => {
     res.json(user);
   } catch (err) {
     res.status(401).json({ message: "Invalid token" });
+  }
+});
+router.get("/users", async (req, res) => {
+  try {
+    const users = await User.find().select("-password");
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ message: "Server error" });
   }
 });
 

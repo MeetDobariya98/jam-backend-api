@@ -45,6 +45,87 @@ const userSchema = new mongoose.Schema(
     profilePhoto: {
       type: String,
     },
+    
+    // --- LinkedIn Style Profile Enhancements ---
+    coverPhoto: {
+      type: String,
+    },
+    headline: {
+      type: String,
+      default: "Musician",
+    },
+    about: {
+      type: String,
+      maxLength: 1000,
+    },
+    bio: {
+      type: String,
+      maxLength: 160,
+    },
+    experience: [
+      {
+        title: String,
+        company: String,
+        startDate: Date,
+        endDate: Date,
+        description: String,
+      }
+    ],
+    education: [
+      {
+        school: String,
+        degree: String,
+        fieldOfStudy: String,
+        startDate: Date,
+        endDate: Date,
+      }
+    ],
+    skills: [
+      {
+        type: String
+      }
+    ],
+    portfolio: [
+      {
+        type: { type: String, enum: ["audio", "video", "link"] },
+        url: String,
+        title: String,
+        description: String
+      }
+    ],
+    // --- Connection/Networking System ---
+    connections: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User"
+      }
+    ],
+    pendingRequests: [
+      {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "User"
+      }
+    ],
+
+    // --- Admin / Moderation ---
+    role: {
+      type: String,
+      enum: ["user", "admin"],
+      default: "user",
+    },
+    isBlocked: {
+      type: Boolean,
+      default: false,
+    },
+    lastLogin: {
+      type: Date,
+    },
+    resetPasswordOTP: {
+      type: String,
+    },
+    resetPasswordOTPExpires: {
+      type: Date,
+    },
 
   },
   { timestamps: true }

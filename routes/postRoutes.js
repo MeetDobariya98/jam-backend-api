@@ -2,6 +2,7 @@ const express = require("express");
 const router = express.Router();
 const Post = require("../models/Post");
 const User = require("../models/User");
+const AdminLog = require("../models/AdminLog");
 
 // CREATE POST
 router.post("/", async (req, res) => {
@@ -23,6 +24,20 @@ router.post("/", async (req, res) => {
     });
 
     const populatedPost = await Post.findById(newPost._id).populate("author", "name lastname profilePhoto headline");
+
+    // Activity Logging
+    try {
+      const author = await User.findById(authorId);
+      await AdminLog.create({
+        adminId: authorId,
+        email: author.email,
+        action: "POST_CREATE",
+        details: `Created post: ${content?.substring(0, 30)}...`,
+        ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown",
+        userAgent: req.headers["user-agent"] || "unknown",
+      });
+    } catch (_) {}
+
     res.status(201).json(populatedPost);
 
   } catch (err) {
@@ -38,6 +53,7 @@ router.get("/feed", async (req, res) => {
     // Only show posts that are NOT assigned to a community in the main feed
     const posts = await Post.find({ community: null })
       .sort({ createdAt: -1 })
+      .limit(50) // Limit to top 50 posts to prevent enormous payloads
       .populate("author", "name lastname profilePhoto headline")
       .populate("comments.user", "name lastname profilePhoto");
       
@@ -130,6 +146,20 @@ router.delete("/:id", async (req, res) => {
     }
 
     await Post.findByIdAndDelete(req.params.id);
+
+    // Activity Logging
+    try {
+      const user = await User.findById(userId);
+      await AdminLog.create({
+        adminId: userId,
+        email: user.email,
+        action: "POST_DELETE",
+        details: `Deleted post ID: ${req.params.id}`,
+        ip: req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown",
+        userAgent: req.headers["user-agent"] || "unknown",
+      });
+    } catch (_) {}
+
     res.json({ message: "Post deleted successfully" });
   } catch (err) {
     console.error("Delete post error:", err);

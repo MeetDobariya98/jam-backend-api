@@ -1,9 +1,12 @@
 const express = require("express");
+const mongoose = require("mongoose");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../models/User");
 const nodemailer = require("nodemailer");
 const crypto = require("crypto");
+const AdminLog = require("../models/AdminLog");
+const Community = require("../models/Community");
 
 const router = express.Router();
 
@@ -100,6 +103,9 @@ router.post("/signup", async (req, res) => {
  */
 router.post("/login", async (req, res) => {
   try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ message: "Database is currently unavailable. Please check backend logs." });
+    }
     const { email, password } = req.body;
 
     // Validate
@@ -125,6 +131,25 @@ router.post("/login", async (req, res) => {
       process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
+
+    // Activity Logging
+    try {
+      const isCommunityAdmin = await Community.exists({ admin: user._id });
+      const action = isCommunityAdmin ? "COMMUNITY_ADMIN_LOGIN" : "USER_LOGIN";
+      const ip = req.headers["x-forwarded-for"] || req.socket.remoteAddress || "unknown";
+      const userAgent = req.headers["user-agent"] || "unknown";
+      
+      await AdminLog.create({
+        adminId: user._id, 
+        email: user.email,
+        action,
+        ip,
+        userAgent,
+        details: `${action}: ${user.email} from ${ip}`,
+      });
+    } catch (logErr) {
+      console.error("Log error (ignoring):", logErr);
+    }
 
     res.json({
       message: "Login successful",
@@ -154,6 +179,9 @@ router.post("/login", async (req, res) => {
  */
 router.post("/forgot-password", async (req, res) => {
   try {
+    if (mongoose.connection.readyState !== 1) {
+      return res.status(503).json({ message: "Database is currently unavailable. Please check backend logs." });
+    }
     const { email } = req.body;
     const user = await User.findOne({ email });
     

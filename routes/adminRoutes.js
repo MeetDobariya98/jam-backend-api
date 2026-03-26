@@ -7,6 +7,7 @@ const Post = require("../models/Post");
 const Community = require("../models/Community");
 const Report = require("../models/Report");
 const AdminLog = require("../models/AdminLog");
+const ExcelJS = require("exceljs");
 
 const ADMIN_JWT_SECRET = process.env.ADMIN_JWT_SECRET || "admin_super_secret_k3y";
 
@@ -132,6 +133,75 @@ router.get("/users", verifyAdmin, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ─── DOWNLOAD USER LOGINS - EXCEL ─────────────────────────────────────────────
+router.get("/users/download/excel", verifyAdmin, async (req, res) => {
+  try {
+    const { startDate, endDate, search } = req.query;
+    let userQuery = {};
+    if (search) {
+      userQuery.$or = [
+        { name: { $regex: search, $options: "i" } },
+        { email: { $regex: search, $options: "i" } },
+      ];
+    }
+    if (startDate || endDate) {
+      userQuery.createdAt = {};
+      if (startDate) userQuery.createdAt.$gte = new Date(startDate);
+      if (endDate) {
+        const e = new Date(endDate);
+        e.setHours(23, 59, 59, 999);
+        userQuery.createdAt.$lte = e;
+      }
+    }
+    const users = await User.find(userQuery).select("-password").sort({ createdAt: -1 });
+    const loginLogs = await AdminLog.find({ action: { $in: ["USER_LOGIN", "COMMUNITY_ADMIN_LOGIN"] } }).sort({ createdAt: -1 });
+    const loginMap = {};
+    loginLogs.forEach((log) => { if (!loginMap[log.email]) loginMap[log.email] = log; });
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("User Login Data");
+    worksheet.columns = [
+      { header: "Full Name",     key: "name",       width: 25 },
+      { header: "Email",         key: "email",      width: 30 },
+      { header: "Instrument",    key: "instrument", width: 20 },
+      { header: "Location",      key: "location",   width: 25 },
+      { header: "Role",          key: "role",       width: 15 },
+      { header: "Status",        key: "status",     width: 12 },
+      { header: "Joined",        key: "joined",     width: 20 },
+      { header: "Last Login",    key: "lastLogin",  width: 25 },
+      { header: "Login Type",    key: "loginType",  width: 25 },
+      { header: "Last Login IP", key: "ip",         width: 20 },
+    ];
+    worksheet.getRow(1).eachCell((cell) => {
+      cell.font = { bold: true, color: { argb: "FFFFFFFF" } };
+      cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF4F46E5" } };
+      cell.alignment = { vertical: "middle", horizontal: "center" };
+    });
+    users.forEach((u) => {
+      const log = loginMap[u.email];
+      worksheet.addRow({
+        name:       `${u.name} ${u.lastname}`,
+        email:      u.email,
+        instrument: u.instrument,
+        location:   `${u.city}, ${u.state}`,
+        role:       u.role,
+        status:     u.isBlocked ? "Blocked" : "Active",
+        joined:     new Date(u.createdAt).toLocaleDateString("en-IN"),
+        lastLogin:  log ? log.createdAt.toLocaleString("en-IN") : "Never",
+        loginType:  log ? log.action : "—",
+        ip:         log ? log.ip : "—",
+      });
+    });
+    res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+    res.setHeader("Content-Disposition", `attachment; filename=UserLoginData_${Date.now()}.xlsx`);
+    await workbook.xlsx.write(res);
+    res.end();
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 
 router.put("/users/:id/block", verifyAdmin, async (req, res) => {
   try {
@@ -305,6 +375,63 @@ router.get("/activity", verifyAdmin, async (req, res) => {
       .sort({ createdAt: -1 })
       .limit(200);
     res.json(logs);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── DOWNLOAD EXCEL ───────────────────────────────────────────────────────────
+router.get("/activity/download/excel", verifyAdmin, async (req, res) => {
+  try {
+    const { startDate, endDate, action } = req.query;
+    let query = {};
+    if (action && action !== "all") query.action = action;
+    if (startDate || endDate) {
+      query.createdAt = {};
+      if (startDate) query.createdAt.$gte = new Date(startDate);
+      if (endDate) {
+        const e = new Date(endDate);
+        e.setHours(23, 59, 59, 999);
+        query.createdAt.$lte = e;
+      }
+    }
+
+    const logs = await AdminLog.find(query).sort({ createdAt: -1 });
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet("Activity Logs");
+
+    worksheet.columns = [
+      { header: "Time", key: "time", width: 25 },
+      { header: "Action", key: "action", width: 20 },
+      { header: "Email", key: "email", width: 30 },
+      { header: "Details", key: "details", width: 50 },
+      { header: "IP Address", key: "ip", width: 20 },
+      { header: "User Agent", key: "userAgent", width: 40 },
+    ];
+
+    logs.forEach((log) => {
+      worksheet.addRow({
+        time: log.createdAt.toLocaleString("en-IN"),
+        action: log.action,
+        email: log.email,
+        details: log.details,
+        ip: log.ip,
+        userAgent: log.userAgent,
+      });
+    });
+
+    res.setHeader(
+      "Content-Type",
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    );
+    res.setHeader(
+      "Content-Disposition",
+      "attachment; filename=" + `ActivityLogs_${Date.now()}.xlsx`
+    );
+
+    await workbook.xlsx.write(res);
+    res.end();
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

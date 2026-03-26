@@ -9,7 +9,8 @@ const isValidObjectId = (id) => mongoose.Types.ObjectId.isValid(id);
 // GET ALL USERS (for discover/network)
 router.get("/", async (req, res) => {
   try {
-    const users = await User.find().select("-password");
+    // Limit to 50 users to avoid massive payloads with base64 images
+    const users = await User.find().select("-password").limit(50);
     res.json(users);
   } catch (err) {
     console.error("Get all users error:", err);
